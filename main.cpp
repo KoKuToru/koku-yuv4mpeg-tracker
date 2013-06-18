@@ -60,6 +60,16 @@ class window: public koku::opengl::windowCallback
 			frame_ratio = ((float(frame_w)/float(frame_h))*float(height))/float(width);
 		}
 
+		void onMouseMotion(int x, int y, int rx, int ry)
+		{
+			cout << "Moti: " << x << ", " << y << ", " << rx << "," << ry << endl;
+		}
+
+		void onMouseButtonDown(int button, int x, int y)
+		{
+			cout << "Down: " << button << ", " << x << ", " << y << endl;
+		}
+
 	public:
 		~window()
 		{
