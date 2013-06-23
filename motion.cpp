@@ -69,12 +69,18 @@ void motionFFT::action()
 
 void motion::reset(int x, int y)
 {
-	track_points[0].x = x;
-	track_points[0].y = y - fft_size/2;
-	track_points[1].x = x - fft_size/2;
-	track_points[1].y = y;
-	track_points[2].x = x + fft_size/2;
-	track_points[2].y = y;
+	for(int i = 0; i < 3; ++i)
+	{
+		track_points[i].x = x + sin(i*2.0*M_PI/3.0)*fft_size/3;
+		track_points[i].y = y + cos(i*2.0*M_PI/3.0)*fft_size/3;
+	}
+
+	//shifted by 180 degree
+	for(int i = 3; i < 6; ++i)
+	{
+		track_points[i].x = x + sin(i*2.0*M_PI/3.0+M_PI)*fft_size;
+		track_points[i].y = y + cos(i*2.0*M_PI/3.0+M_PI)*fft_size;
+	}
 
 	motion_matrix.resize(3*3);
 	for(int i = 0; i < 3*3; ++i)
@@ -84,11 +90,9 @@ void motion::reset(int x, int y)
 	motion_matrix[0+0*3] = 1;
 	motion_matrix[1+1*3] = 1;
 	motion_matrix[2+2*3] = 1;
-
-	reseted = true;
 }
 
-motion::motion(): reseted(true)
+motion::motion()
 {
 	motion_matrix.resize(3*3);
 	for(int i = 0; i < 3*3; ++i)
@@ -132,7 +136,8 @@ void motion::update(const vector<unsigned char>& a, const vector<unsigned char>&
 		data_v = a[(rx+ry*w)*3+2];
 		data_v /= 255.0;
 
-		o->first.input[x+y*fft_size]  = data_y*mask[x+y*fft_size]; //Only Y-Channel for now
+		float n = (sin(data_u/255.0+M_PI*data_y*25.0)+0.5)*(data_v/2.0+data_y/2.0)/2.0;
+		o->first.input[x+y*fft_size]  = n*mask[x+y*fft_size];
 
 		data_y = b[(rx+ry*w)*3+0];
 		data_y /= 255.0;
@@ -141,37 +146,28 @@ void motion::update(const vector<unsigned char>& a, const vector<unsigned char>&
 		data_v = b[(rx+ry*w)*3+2];
 		data_v /= 255.0;
 
-		o->second.input[x+y*fft_size]  = data_y*mask[x+y*fft_size]; //Only Y-Channel for now
+		n = (sin(data_u/255.0+M_PI*data_y*25.0)+0.5)*(data_v/2.0+data_y/2.0)/2.0;
+		o->second.input[x+y*fft_size]  = n*mask[x+y*fft_size];
 	}
 
 	o->x_prev = o->x;
 	o->y_prev = o->y;
 
 	o->action();
-
-	reseted = false;
 }
 
-void motion::update(const vector<unsigned char>& a, const vector<unsigned char>& b, int w, int h)
+void motion::calcMatrix(int w, int h, int a, int b, int c, float M[3*3])
 {
-	//load data
-	for(int i = 0; i < 3; ++i)
-	{
-		update(a, b, w, h, track_points+i);
-	}
-
 	//now generate a transform matrix
 	//http://math.stackexchange.com/questions/85373/how-do-i-find-the-matrix-m-that-transforms-a-vector-a-into-the-vector-b
 
-	float X[3*3] = { (float)track_points[0].x_prev/w, (float)track_points[1].x_prev/w, (float)track_points[2].x_prev/w,
-					 (float)track_points[0].y_prev/h, (float)track_points[1].y_prev/h, (float)track_points[2].y_prev/h,
+	float X[3*3] = { (float)track_points[a].x_prev/w, (float)track_points[b].x_prev/w, (float)track_points[c].x_prev/w,
+					 (float)track_points[a].y_prev/h, (float)track_points[b].y_prev/h, (float)track_points[c].y_prev/h,
 					 1, 1, 1 };
 
-	float Y[3*3] = { (float)track_points[0].x/w, (float)track_points[1].x/w, (float)track_points[2].x/w,
-					 (float)track_points[0].y/h, (float)track_points[1].y/h, (float)track_points[2].y/h,
+	float Y[3*3] = { (float)track_points[a].x/w, (float)track_points[b].x/w, (float)track_points[c].x/w,
+					 (float)track_points[a].y/h, (float)track_points[b].y/h, (float)track_points[c].y/h,
 					 1, 1, 1 };
-
-	float M[3*3]  {0};
 
 	//Y = M * X
 	//M = X * inv(Y)
@@ -206,36 +202,114 @@ void motion::update(const vector<unsigned char>& a, const vector<unsigned char>&
 			//based on the result of http://www.bluebit.gr/matrix-calculator/matrix_multiplication.aspx
 			M[x + y*3] += Y_inv[x + k*3]*X[k + y*3];
 		}
+	}
+}
 
-		//mutply with old
-		float new_motion_matrix[3*3] = {0};
+void motion::update(const vector<unsigned char>& a, const vector<unsigned char>& b, int w, int h)
+{
+	//load data
+	for(int i = 0; i < 6; ++i)
+	{
+		update(a, b, w, h, track_points+i);
+	}
 
-		for(int y = 0; y < 3; ++y)
-		for(int x = 0; x < 3; ++x)
-		for(int k = 0; k < 3; ++k)
+	float M1[3*3] = {0};
+	calcMatrix(w, h, 0, 1, 2, M1);
+	float M2[3*3] = {0};
+	calcMatrix(w, h, 3, 4, 5, M2);
+
+	//now check M1 and M2
+	float best = 100000.0;
+	float best_f = 0.0;
+	float M[3*3] = {0};
+	for(int fi = 0; fi <= 100; ++fi)
+	{
+		float f = fi/100.0;
+		for(int i = 0; i < 3*3; ++i)
 		{
-			//new_motion_matrix[x + y*3] = motion_matrix[x + k*3]*M[k + y*3];
-			new_motion_matrix[x + y*3] += M[x + k*3]*motion_matrix[k + y*3];
+			M[i] = M1[i]*(1.0-f)+M2[i]*f;
 		}
 
-		//center trackpoint
-		float center_x = 0;
-		float center_y = 0;
-		for(int i = 0; i < 3; ++i)
+		//calculated points
+		float error = 0;
+		for(int i = 0; i < 6; ++i)
 		{
-			center_x += track_points[i].x;
-			center_y += track_points[i].y;
-		}
-		//reset(center_x/3.0, center_y/3.0); //resets motion_matrix, but we reset it manually with new matrix !
+			float old_pos[3] = {(float)track_points[i].x_prev, (float)track_points[i].y_prev, 0};
+			float new_pos[3] = {0};
 
-		//save new matrix
-		for(int y = 0; y < 3; ++y)
-		for(int x = 0; x < 3; ++x)
+			//multiply
+			for(int y = 0; y < 3; ++y)
+			for(int k = 0; k < 3; ++k)
+			{
+				new_pos[y] += M[k + y*3]*old_pos[k];
+			}
+
+			new_pos[0] -= track_points[i].x;
+			new_pos[1] -= track_points[i].y;
+
+			error += sqrt(new_pos[0]*new_pos[0]+new_pos[1]*new_pos[1]);
+		}
+
+		if (error < best)
 		{
-			motion_matrix[x + y*3] = new_motion_matrix[x + y*3];
+			best = error;
+			best_f = f;
 		}
 	}
 
+	cout << "error: " << best << " f:" << best_f << endl;
+	for(int i = 0; i < 3*3; ++i)
+	{
+		M[i] = M1[i]*(1.0-best_f)+M2[i]*best_f;
+	}
+
+	//make matrix less effective because of "error"
+	best /= 50.0;
+	best_f = 1.0/(1+best); //the bigger the erro => the less the factor
+	float M_ident[3*3] = {1,0,0,0,1,0,0,0,1};
+	for(int i = 0; i < 3*3; ++i)
+	{
+		M[i] = M_ident[i]*(1.0-best_f)+M[i]*best_f;
+	}
+
+	//multiply with old matrix
+	float new_motion_matrix[3*3] = {0};
+
+	for(int y = 0; y < 3; ++y)
+	for(int x = 0; x < 3; ++x)
+	for(int k = 0; k < 3; ++k)
+	{
+		new_motion_matrix[x + y*3] += M[x + k*3]*motion_matrix[k + y*3];
+	}
+
+	//move trackpoints based on the transformation
+	for(int i = 0; i < 6; ++i)
+	{
+		float old_pos[3] = {(float)track_points[i].x_prev, (float)track_points[i].y_prev, 0};
+		float new_pos[3] = {0};
+
+		//multiply
+		/*for(int y = 0; y < 3; ++y)
+		for(int k = 0; k < 3; ++k)
+		{
+			new_pos[y] += new_motion_matrix[k + y*3]*old_pos[k];
+		}*/
+
+		track_points[i].x = old_pos[0];
+		track_points[i].y = old_pos[1];
+		/*
+		//not working ?
+		track_points[i].x = new_pos[0];
+		track_points[i].y = new_pos[1];
+		*/
+	}
+
+	//save new matrix
+	for(int y = 0; y < 3; ++y)
+	for(int x = 0; x < 3; ++x)
+	{
+		motion_matrix[x + y*3] = new_motion_matrix[x + y*3];
+	}
 }
 
 const vector<float>& motion::get()

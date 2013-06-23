@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-constexpr int fft_size = 0xFF;
+constexpr int fft_size = 128;
 
 //never copy or use this
 struct motionFFT
@@ -38,13 +38,14 @@ struct motionFFT
 class motion
 {
 	private:
-		motionFFT track_points[3];
+		motionFFT track_points[3+3];
 		std::vector<float> mask;
 		std::vector<float> motion_matrix;
 
 		bool reseted;
 
 		void update(const std::vector<unsigned char>& a, const std::vector<unsigned char>& b, int w, int h, motionFFT* o);
+		void calcMatrix(int w, int h, int a, int b, int c, float M[3*3]);
 
 	public:
 		motion();

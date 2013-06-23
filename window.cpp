@@ -171,7 +171,7 @@ void window::render()
 		renderRect(0, 0, 0+my_yuv4mpeg.width()/3, 0+my_yuv4mpeg.height()/3, &my_rect_tex_data);
 
 		//render motion trackers
-		for(int i = 0; i < 3; ++i)
+		for(int i = 0; i < 6; ++i)
 		{
 			pair<int, int> pos = my_motion.position(i);
 			renderRect((pos.first  - fft_size/2)/3,
